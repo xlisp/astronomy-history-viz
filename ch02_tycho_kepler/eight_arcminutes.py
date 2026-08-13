@@ -70,11 +70,15 @@ print(f"  max radial residual = {resid_circ.abs().max():.5f} AU")
 ang_err_circ = torch.atan2(resid_circ.abs(), r_true) * RAD2ARCMIN
 print(f"  max angular residual as seen from the Sun = {ang_err_circ.max():.2f} arcmin")
 
-# The famous 8′ is the error in Mars' predicted longitude on the sky. The dominant
-# term comes from the ellipse's "equation of centre" mismatch, of order e²:
-kepler_8min = E_MARS**2 * RAD2ARCMIN / 2 * 60 / 60 * 2
-print(f"  order-of-magnitude estimate  e²·(rad→arcmin) ≈ {E_MARS**2 * RAD2ARCMIN:.1f} arcmin")
-print(f"  → this is the ~8′ Kepler could not explain away\n")
+# Where does that number come from? Expand the orbit equation to second order:
+#   r = a(1−e²)/(1+e·cosθ) ≈ a[1 − e·cosθ − (e²/2)·(1 − cos2θ)]
+# An offset circle absorbs the whole e·cosθ term (that is what an eccentric IS) and
+# absorbs the constant part of the e² term into its radius. What it cannot absorb is
+# the cos2θ ripple of amplitude a·e²/2 — and least squares splits that in half:
+predicted = E_MARS**2 / 4 * RAD2ARCMIN
+print(f"  closed form  e²/4 = {E_MARS**2/4:.6f} rad = {predicted:.2f} arcmin"
+      f"   (measured {ang_err_circ.max():.2f}′)")
+print("  → an irreducible ~8′, set purely by Mars' eccentricity. No circle can remove it.\n")
 
 # --- dissection 2: best-fit ELLIPSE, Sun forced to sit at a focus ---
 a_p = torch.tensor(1.5, dtype=torch.float64, requires_grad=True)

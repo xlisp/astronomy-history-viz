@@ -121,15 +121,17 @@ lon = run(mass_rows, axes)
 lon = torch.from_numpy(np.unwrap(lon.numpy(), axis=0))
 times = torch.linspace(0, T_SPAN, lon.shape[0], dtype=torch.float64)
 
-# precession rate = slope of the perihelion longitude, per century
+# Precession rate = slope of the perihelion longitude.
+# `times` is in YEARS, so the fitted slope is rad/yr → ×RAD2ARCSEC×100 = ″/century.
 design = torch.stack([times, torch.ones_like(times)], dim=1)
-slopes = torch.linalg.lstsq(design, lon).solution[0] * RAD2ARCSEC * 100 / 100
-rates = slopes * 1.0        # arcsec per century (times already spans a century)
+rates = torch.linalg.lstsq(design, lon).solution[0] * RAD2ARCSEC * 100
 
 drift_numeric = rates[0].item()
 print(f"\nintegrator's own spurious drift (no perturbers at all) = "
-      f"{drift_numeric:+.3f}″/century")
-print("  (this is the numerical error floor; everything below is measured against it)\n")
+      f"{drift_numeric:+.1f}″/century")
+print("  Velocity-Verlet conserves energy but still rotates the LRL vector slightly")
+print("  through truncation error. Every run below uses identical steps and initial")
+print("  conditions, so differencing against this baseline cancels it exactly.\n")
 
 print("  planet     simulated    accepted    note")
 print("             (″/century)  (″/century)")
@@ -148,9 +150,12 @@ print(f"\n  sum of the parts      = {total_sim:8.2f}″/century")
 print(f"  all planets at once   = {all_together:8.2f}″/century  "
       f"(perturbations add almost linearly)")
 print(f"  accepted Newtonian total = {sum(ACCEPTED.values()):8.2f}″/century")
-print("\n  Our circular-coplanar model omits the perturbers' own eccentricities and")
-print("  inclinations, so it lands a few per cent low. Le Verrier did this by hand,")
-print("  to 6 digits, with full Laplace–Lagrange secular theory, and got 526–532″.\n")
+print(f"\n  Our circular-coplanar model omits the perturbers' own eccentricities and")
+print(f"  inclinations, so it overshoots by {100*(total_sim/sum(ACCEPTED.values())-1):.0f}%. "
+      f"Le Verrier did this by hand, to six")
+print(f"  digits, with full Laplace–Lagrange secular theory, and got 526–532″.")
+print(f"  Either way the conclusion is identical, and that is the point: no plausible")
+print(f"  Newtonian bookkeeping reaches {OBSERVED_EXCESS:.0f}″.\n")
 
 newtonian = sum(ACCEPTED.values())
 residual = OBSERVED_EXCESS - newtonian

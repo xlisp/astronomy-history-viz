@@ -44,8 +44,9 @@ ARCSEC = DEG / 3600
 
 
 def elements_to_state(a, e, i, Om, w, M, mu=MU):
+    """Elements → state. M may be a vector, so every epoch is solved in one pass."""
     E = M.clone()
-    for _ in range(60):
+    for _ in range(24):                    # Newton on Kepler's equation, batched
         E = E - (E - e * torch.sin(E) - M) / (1 - e * torch.cos(E))
     nu = 2 * torch.atan2(torch.sqrt(1 + e) * torch.sin(E / 2),
                          torch.sqrt(1 - e) * torch.cos(E / 2))
@@ -95,12 +96,9 @@ def predict_radec(el, t):
 torch.manual_seed(11)
 NOISE = 4.0 * ARCSEC                 # Piazzi's transit circle, ~4 arcsec
 t_obs = torch.linspace(0.0, 41.0, 24, dtype=torch.float64)
-obs = []
-for t in t_obs:
-    ra, dec = predict_radec(el_true, t)
-    obs.append(torch.stack([ra + torch.randn(()) * NOISE / torch.cos(dec),
-                            dec + torch.randn(()) * NOISE]))
-obs = torch.stack(obs)
+ra_t0, dec_t0 = predict_radec(el_true, t_obs)
+obs = torch.stack([ra_t0 + torch.randn(len(t_obs), dtype=torch.float64) * NOISE / torch.cos(dec_t0),
+                   dec_t0 + torch.randn(len(t_obs), dtype=torch.float64) * NOISE], dim=1)
 
 print(f"{len(t_obs)} observations over {float(t_obs[-1]):.0f} days, "
       f"σ = {NOISE/ARCSEC:.1f} arcsec each.\n")
@@ -117,34 +115,39 @@ el_fit = el_fit.clone().requires_grad_(True)
 
 
 def residuals(el):
-    """Observed minus computed, in radians, cos(dec)-weighted so both axes are angles."""
-    out = []
-    for k, t in enumerate(t_obs):
-        ra, dec = predict_radec(el, t)
-        dra = torch.remainder(obs[k, 0] - ra + np.pi, 2 * np.pi) - np.pi
-        out.append(torch.stack([dra * torch.cos(dec), obs[k, 1] - dec]))
-    return torch.cat(out)
+    """Observed minus computed, in radians, cos(dec)-weighted so both axes are angles.
+
+    All 24 epochs are evaluated in one vectorised pass, which makes the Jacobian
+    cheap enough to recompute at every iteration.
+    """
+    ra, dec = predict_radec(el, t_obs)
+    dra = torch.remainder(obs[:, 0] - ra + np.pi, 2 * np.pi) - np.pi
+    return torch.stack([dra * torch.cos(dec), obs[:, 1] - dec], dim=1).reshape(-1)
+
+
+def jacobian(el):
+    return torch.autograd.functional.jacobian(residuals, el, vectorize=True)
 
 
 print("Gauss–Newton iteration (Jacobian from autograd, not from hand calculus):")
-print("  iter    RMS residual (arcsec)      |δa| (AU)     step norm")
+print("  iter    RMS residual (arcsec)      a (AU)       step norm")
 rms_hist = []
-for it in range(9):
+for it in range(140):
     r = residuals(el_fit)
     rms = float(torch.sqrt((r**2).mean())) / ARCSEC
     rms_hist.append(rms)
-    # Jacobian: one backward pass per residual component
-    J = torch.stack([torch.autograd.grad(r[k], el_fit, retain_graph=True)[0]
-                     for k in range(len(r))])
+    J = jacobian(el_fit.detach())
     # Normal equations. With r = observed − computed, J = ∂r/∂x, minimising ‖r + Jδ‖²
     # gives JᵀJ·δ = −Jᵀr — the minus sign matters; without it the step climbs.
     JtJ = J.T @ J
     damp = 1e-10 * torch.eye(6, dtype=torch.float64) * torch.diag(JtJ).mean()
     delta = -torch.linalg.solve(JtJ + damp, J.T @ r)
-    print(f"   {it:3d}    {rms:16.4f}   {abs(float(el_fit[0]-el_true[0])):11.3e}   "
-          f"{float(torch.linalg.norm(delta)):.2e}")
+    if it < 6 or it % 20 == 0 or it == 139:
+        print(f"   {it:3d}    {rms:16.4f}   {float(el_fit[0]):11.5f}   "
+              f"{float(torch.linalg.norm(delta)):.2e}")
     el_fit = (el_fit + delta).detach().requires_grad_(True)
-    if float(torch.linalg.norm(delta)) < 1e-14:
+    if float(torch.linalg.norm(delta)) < 1e-13:
+        print(f"   converged after {it+1} iterations")
         break
 
 r_final = residuals(el_fit)
@@ -157,8 +160,7 @@ names = ["a (AU)", "e", "i (deg)", "Ω (deg)", "ω (deg)", "M₀ (deg)"]
 scale = [1, 1, 1 / DEG, 1 / DEG, 1 / DEG, 1 / DEG]
 
 # --- the covariance, which is the actual product of the exercise ---
-J = torch.stack([torch.autograd.grad(r_final[k], el_fit, retain_graph=True)[0]
-                 for k in range(len(r_final))])
+J = jacobian(el_fit.detach())
 cov = torch.linalg.inv(J.T @ J) * (NOISE**2)
 sigma = torch.sqrt(torch.diag(cov))
 
@@ -215,7 +217,7 @@ ax = fig.add_subplot(gs[0, :2])
 el0 = el_true.clone()
 el0[0] += 0.09; el0[1] += 0.010; el0[2] += 0.4 * DEG
 el0[3] += 0.5 * DEG; el0[4] += 0.8 * DEG; el0[5] += 0.3 * DEG
-r0 = residuals(el0.requires_grad_(True)).detach() / ARCSEC
+r0 = residuals(el0).detach() / ARCSEC
 rf = r_final.detach() / ARCSEC
 ax.plot(t_obs, r0[0::2], "o-", color="lightcoral", ms=5, label="before: ΔRA·cos δ")
 ax.plot(t_obs, r0[1::2], "s-", color="indianred", ms=5, label="before: ΔDec")

@@ -11,23 +11,27 @@ to cast, grind, polish and support a large piece of glass or metal. So the histo
 of astronomical discovery is, to an uncomfortable degree, the history of a
 manufacturing craft.
 
-The sharpest case in this project: Hubble's 1924 proof that Andromeda is a separate
-galaxy (ch07) required detecting individual Cepheid variables at magnitude ~19.
-That is not possible below about 1.5 m of aperture. The 2.5 m Hooker telescope had
-been finished in 1917. Extragalactic astronomy did not begin when someone had the
-idea; it began when the mirror was ready.
+But aperture is only half of it. A second, independent gate is the DETECTOR: the
+eye integrates for about a tenth of a second and then discards the photons, while a
+photographic plate integrates for hours. That is worth roughly five magnitudes, the
+same as a 10× increase in aperture, and it arrived in the 1880s.
+
+The sharpest case in this project is Hubble's 1924 proof that Andromeda is a
+separate galaxy (ch07), which needed Cepheids at magnitude ~19 measured repeatedly
+for a light curve. Kant had proposed 'island universes' in 1755. The hypothesis
+waited 169 years, and what it waited for was not an idea — it was glass, silver
+and emulsion.
 
     phenomenon:   bigger telescopes see fainter and finer
-    simulation:   Airy patterns for two stars at several apertures
-    dissection:   compute limiting magnitude and Rayleigh resolution vs D
-    formula:      θ = 1.22λ/D, and m_lim ≈ 2 + 5·log₁₀(D_mm) — then check which
-                  discovery each aperture unlocks.
+    simulation:   Airy patterns for the same double star at three apertures
+    dissection:   limiting magnitude and Rayleigh resolution vs D, for eye and plate
+    formula:      θ = 1.22λ/D and m_lim = 6 + 2.5·log₁₀((D/7 mm)²) [+5 on a plate],
+                  then check which discovery each combination unlocks.
 """
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from scipy.special import j1
 
 LAMBDA = 550e-9            # m
@@ -53,17 +57,31 @@ def rayleigh_arcsec(D_m, lam=LAMBDA):
     return 1.22 * lam / D_m * 206265
 
 
-def limiting_mag(D_m):
+# A photographic plate integrates for hours; the eye integrates for ~0.1 s and then
+# throws the photons away. That difference is worth roughly 5 magnitudes on early
+# 20th-century plates, and it is a SECOND instrument gate, independent of aperture.
+PHOTOGRAPHIC_GAIN = 5.0
+PHOTOGRAPHY_FROM = 1880          # when plates became practical for faint astronomy
+
+
+def limiting_mag(D_m, photographic=False):
     """Naked eye reaches ~6th magnitude with a 7 mm pupil; add 2.5·log₁₀ of the area."""
-    return 6.0 + 2.5 * np.log10((D_m / EYE_PUPIL) ** 2)
+    m = 6.0 + 2.5 * np.log10((D_m / EYE_PUPIL) ** 2)
+    return m + PHOTOGRAPHIC_GAIN if photographic else m
 
 
-print("  year  instrument                D (m)   resolution   light grasp   m_lim")
-print("                                          (arcsec)     (× naked eye)")
+print("  year  instrument                D (m)   resolution   light grasp   m_lim   m_lim")
+print("                                          (arcsec)     (× naked eye)  visual  photo")
 for yr, name, D, what in SCOPES:
+    photo = yr >= PHOTOGRAPHY_FROM
+    mp = f"{limiting_mag(D, True):5.1f}" if photo else "   — "
     print(f"  {yr}  {name:24s} {D:6.2f}   {rayleigh_arcsec(D):9.4f}   "
-          f"{(D/EYE_PUPIL)**2:11.0f}   {limiting_mag(D):5.1f}")
+          f"{(D/EYE_PUPIL)**2:11.0f}   {limiting_mag(D):5.1f}   {mp}")
 print()
+print("There are TWO instrument gates here, not one. Aperture buys D² photons per")
+print("second; the photographic plate (practical for faint work from the 1880s) buys")
+print("hours of integration where the eye buys a tenth of a second. Each is worth")
+print("about five magnitudes, and a discovery needs both.\n")
 print("Note 1897: the Yerkes 40-inch is the largest refractor ever built, and nothing")
 print("larger was ever attempted. A lens must be supported at its rim and light must")
 print("pass through it, so it sags and it must be flawless throughout. Every telescope")
@@ -72,19 +90,32 @@ print("after it is a mirror — Newton's 1668 judgement, vindicated 229 years la
 # --- the specific gate: could you have found Hubble's Cepheids? ---
 M_CEPHEID_ANDROMEDA = 19.0
 print("THE DECISIVE CASE — Hubble, Andromeda, 1924")
-print(f"  A Cepheid in M31 sits at apparent magnitude ~{M_CEPHEID_ANDROMEDA:.0f}.")
-print("  Which telescopes in history could have detected it?\n")
-print("  instrument                D (m)    m_lim    could it? ")
+print(f"  A Cepheid in M31 sits at apparent magnitude ~{M_CEPHEID_ANDROMEDA:.0f}, and")
+print("  Hubble had to do more than glimpse it once: he needed a light curve, so")
+print("  dozens of plates each reaching several magnitudes PAST detection, against")
+print("  the bright unresolved background of the galaxy itself.\n")
+print("  instrument                D (m)   detector      m_lim    reach m=19?")
 for yr, name, D, what in SCOPES:
-    ml = limiting_mag(D)
+    photo = yr >= PHOTOGRAPHY_FROM
+    ml = limiting_mag(D, photo)
+    det = "plate" if photo else "eye"
     verdict = "YES" if ml >= M_CEPHEID_ANDROMEDA else "no"
-    print(f"  {name:24s} {D:6.2f}   {ml:6.1f}     {verdict}")
-D_needed = EYE_PUPIL * 10 ** ((M_CEPHEID_ANDROMEDA - 6.0) / 5.0)
-print(f"\n  minimum aperture required = {D_needed:.2f} m")
-print("  The Hooker 100-inch was completed in 1917. Hubble published in 1924.")
-print("  The idea that spiral nebulae might be separate galaxies was two centuries")
-print("  old — Kant called them 'island universes' in 1755. What was missing for")
-print("  169 years was not the hypothesis. It was 2.5 metres of polished glass.\n")
+    margin = f"  (+{ml-M_CEPHEID_ANDROMEDA:.1f} mag of headroom)" if ml >= M_CEPHEID_ANDROMEDA else ""
+    print(f"  {name:24s} {D:6.2f}   {det:9s} {ml:7.1f}     {verdict}{margin}")
+
+D_vis = EYE_PUPIL * 10 ** ((M_CEPHEID_ANDROMEDA - 6.0) / 5.0)
+D_pho = EYE_PUPIL * 10 ** ((M_CEPHEID_ANDROMEDA - 6.0 - PHOTOGRAPHIC_GAIN) / 5.0)
+print(f"\n  minimum aperture, observing visually      = {D_vis:.2f} m")
+print(f"  minimum aperture, with photographic plates = {D_pho:.2f} m")
+print()
+print("  So the honest answer is not 'only the Hooker was big enough'. Rosse's 1.83 m")
+print("  had the aperture in 1845 but no usable photography; Yerkes had both by 1897")
+print("  and could in principle have reached m = 19. What the Hooker uniquely gave")
+print("  Hubble was HEADROOM — enough margin to measure a light curve rather than")
+print("  merely register a dot, on a galaxy crowded with unresolved stars.")
+print()
+print("  Kant proposed 'island universes' in 1755. The hypothesis waited 169 years,")
+print("  and what it waited for was not an idea. It was glass, silver and emulsion.\n")
 
 # --- the same argument, for resolution ---
 print("And the resolution side, with one example each:")
@@ -172,7 +203,7 @@ ax.grid(alpha=0.3, which="both")
 # Panel 6: the gate
 ax = fig.add_subplot(gs[1, 2])
 names = [s[1].split("(")[0][:18] for s in SCOPES]
-mls = [limiting_mag(s[2]) for s in SCOPES]
+mls = [limiting_mag(s[2], s[0] >= PHOTOGRAPHY_FROM) for s in SCOPES]
 cols = ["crimson" if m >= M_CEPHEID_ANDROMEDA else "lightgray" for m in mls]
 ax.barh(names, mls, color=cols, alpha=0.9)
 ax.axvline(M_CEPHEID_ANDROMEDA, color="black", ls="--", lw=2.2,
@@ -181,8 +212,7 @@ ax.set_xlabel("limiting magnitude (fainter →)")
 ax.set_xlim(5, 32)
 ax.invert_yaxis()
 ax.tick_params(axis="y", labelsize=7.5)
-ax.set_title("The instrument gate on cosmology.\nEverything left of the dashed line "
-             "could\nnot have found Hubble's Cepheids —\nno matter who was looking.")
+ax.set_title("The instrument gate on cosmology.\nBars use the best detector of their era —\nthe jump at 1880 is photography,\nnot a bigger mirror.")
 ax.legend(fontsize=8, loc="lower right")
 ax.grid(alpha=0.3, axis="x")
 

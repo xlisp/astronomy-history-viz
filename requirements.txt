@@ -1,0 +1,10 @@
+torch>=2.0
+numpy
+matplotlib
+seaborn
+sympy
+scipy
+pillow
+# Optional — only needed for Manim animations / Streamlit apps:
+# manim
+# streamlit

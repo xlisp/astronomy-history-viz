@@ -53,14 +53,16 @@ def sag_parabola(r, R):
 def marginal_focus(r, R):
     """Where a ray striking a SPHERE at height r crosses the axis.
 
-    Reflect the incoming parallel ray off the local surface normal and intersect
-    with the axis. For a sphere the crossing point walks inward as r grows — that
-    walk IS spherical aberration.
+    The normal at the surface point P points at the centre of curvature C = (0, R).
+    Reflecting the incoming ray d = (0, −1) about that normal and intersecting the
+    result with the axis gives, after the algebra collapses,
+
+        z_focus = R − R² / (2·sqrt(R² − r²))
+
+    which tends to the paraxial R/2 as r → 0 and walks INWARD as r grows. That walk
+    is spherical aberration; to first order it is r²/(4R).
     """
-    # surface normal of a sphere centred at (0, R) on the axis
-    theta = torch.asin(r / R)
-    # a parallel ray reflects through an angle 2*theta; simple geometry gives:
-    return R - r / torch.tan(2 * theta)
+    return R - R**2 / (2 * torch.sqrt(R**2 - r**2))
 
 
 print("THE PROBLEM: grinding makes a sphere, optics wants a paraboloid.\n")
@@ -128,18 +130,22 @@ R_TEST = 2 * N_TEST * D_TEST
 rr = torch.linspace(1.0, D_TEST / 2, 200, dtype=torch.float64)
 foci = marginal_focus(rr, torch.tensor(R_TEST))
 paraxial = R_TEST / 2
+f_test = N_TEST * D_TEST
 long_ab = float(paraxial - foci.min())
-# transverse blur from longitudinal aberration: 2*r*LA/f
-blur = 2 * (D_TEST / 2) * long_ab / (N_TEST * D_TEST)
+# A marginal ray converges with slope r/f, so missing focus by long_ab leaves it
+# long_ab*r/f off-axis at the paraxial focal plane. Diameter is twice that.
+blur = 2 * long_ab * (D_TEST / 2) / f_test
+blur_arcsec = blur / f_test * 206265
+diff_arcsec = 1.22 * LAMBDA / D_TEST * 206265
 print(f"A {D_TEST:.0f} mm f/{N_TEST:.0f} SPHERE, left unparabolised:")
 print(f"  paraxial focus at {paraxial:.2f} mm, marginal focus at {float(foci.min()):.2f} mm")
-print(f"  longitudinal spherical aberration = {long_ab:.3f} mm")
-print(f"  resulting star image diameter = {blur*1000:.1f} µm = "
-      f"{blur/(N_TEST*D_TEST)*206265:.2f} arcsec")
-print(f"  the diffraction limit for this aperture is "
-      f"{1.22*LAMBDA/D_TEST*206265:.2f} arcsec")
-print(f"  → the unparabolised sphere is {blur/(N_TEST*D_TEST)*206265/(1.22*LAMBDA/D_TEST*206265):.1f}× "
-      f"worse than the mirror is capable of.")
+print(f"  longitudinal spherical aberration = {long_ab:.3f} mm"
+      f"   (closed form r²/4R = {(D_TEST/2)**2/(4*R_TEST):.3f} mm ✓)")
+print(f"  star image diameter at the paraxial focus = {blur*1000:.1f} µm = "
+      f"{blur_arcsec:.2f} arcsec")
+print(f"  the diffraction limit for this aperture is {diff_arcsec:.2f} arcsec")
+print(f"  → the unparabolised sphere is {blur_arcsec/diff_arcsec:.0f}× worse than the "
+      f"mirror is capable of.")
 print()
 print("This is what those weeks of polishing buy. Not a better telescope — the SAME")
 print("telescope, finally performing at the limit physics allows.")

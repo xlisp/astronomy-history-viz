@@ -26,7 +26,7 @@ import torch
 A_EARTH, T_EARTH = 1.000, 1.0000     # AU, years
 A_MARS,  T_MARS  = 1.524, 1.8808
 
-t = torch.linspace(0, 4.0, 2000, dtype=torch.float64)     # 4 years
+t = torch.linspace(0, 6.0, 3000, dtype=torch.float64)     # 6 years — long enough for two loops
 
 earth = torch.stack([A_EARTH * torch.cos(2 * np.pi * t / T_EARTH),
                      A_EARTH * torch.sin(2 * np.pi * t / T_EARTH)], dim=1)
@@ -64,12 +64,16 @@ print(f"Mars is retrograde {100 * retro.double().mean():.1f}% of the time")
 T_syn = 1.0 / (1.0 / T_EARTH - 1.0 / T_MARS)
 print(f"synodic period  1/T_syn = 1/{T_EARTH} − 1/{T_MARS}  →  T_syn = {T_syn:.3f} yr")
 
-# find the midpoints of each retrograde episode
+# find the midpoint of each complete retrograde episode (pair each start with the
+# first end that follows it, so a partial episode at either edge is discarded)
 edges = np.diff(retro.numpy().astype(int))
-starts = np.where(edges == 1)[0]
-ends = np.where(edges == -1)[0]
-n_ep = min(len(starts), len(ends))
-mids = [(t[starts[i]].item() + t[ends[i]].item()) / 2 for i in range(n_ep)]
+starts = list(np.where(edges == 1)[0])
+ends = list(np.where(edges == -1)[0])
+mids = []
+for s in starts:
+    later = [e for e in ends if e > s]
+    if later:
+        mids.append((t[s].item() + t[later[0]].item()) / 2)
 if len(mids) > 1:
     print(f"measured spacing between retrograde loops = "
           f"{np.mean(np.diff(mids)):.3f} yr   (predicted {T_syn:.3f} yr)")
@@ -91,7 +95,7 @@ ax3 = fig.add_subplot(1, 3, 3)
 ax1.plot(earth[:, 0], earth[:, 1], color="steelblue", lw=1.5, label="Earth orbit")
 ax1.plot(mars[:, 0], mars[:, 1], color="firebrick", lw=1.5, label="Mars orbit")
 ax1.plot(0, 0, "*", color="orange", ms=20, label="Sun")
-for k in range(0, 2000, 90):                 # sight lines Earth → Mars
+for k in range(0, 3000, 130):                 # sight lines Earth → Mars
     ax1.plot([earth[k, 0], mars[k, 0]], [earth[k, 1], mars[k, 1]],
              color="gray", lw=0.5, alpha=0.45)
 ax1.set_aspect("equal")

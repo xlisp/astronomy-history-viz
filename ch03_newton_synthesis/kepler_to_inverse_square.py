@@ -121,7 +121,7 @@ gs = fig.add_gridspec(2, 3, height_ratios=[1.15, 1])
 ax = fig.add_subplot(gs[0, 0])
 ax.plot(pos[:, 0], pos[:, 1], color="black", lw=1.8)
 skip = 12
-sc = 0.0016
+sc = 0.00028                                    # keeps the longest arrow inside the orbit
 ax.quiver(pos[::skip, 0], pos[::skip, 1], acc[::skip, 0] * sc, acc[::skip, 1] * sc,
           color="crimson", width=0.006, scale=1, scale_units="xy", angles="xy")
 ax.plot(0, 0, "*", color="orange", ms=22, zorder=6)

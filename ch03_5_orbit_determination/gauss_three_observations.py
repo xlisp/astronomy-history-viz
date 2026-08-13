@@ -194,12 +194,58 @@ r1 = Rv1 + rho1 * L1
 r2 = Rv2 + rho2 * L2
 r3 = Rv3 + rho3 * L3
 
-# Lagrange f and g series give the velocity at the middle epoch
+# Lagrange f and g series give a first velocity at the middle epoch
 f1 = 1 - MU * tau1**2 / (2 * r2_mag**3)
 f3 = 1 - MU * tau3**2 / (2 * r2_mag**3)
 g1 = tau1 - MU * tau1**3 / (6 * r2_mag**3)
 g3 = tau3 - MU * tau3**3 / (6 * r2_mag**3)
 v2 = (-f3 * r1 + f1 * r3) / (f1 * g3 - f3 * g1)
+
+
+# ----------------------------------------------------------------------------
+# Gauss's iteration: replace the truncated f,g series with EXACT ones
+# ----------------------------------------------------------------------------
+def propagate_state(r, v, dt):
+    """Exact two-body propagation, via the elements. Kepler, not a Taylor series."""
+    a, e, i, Om, w, M = state_to_elements(r, v)
+    n = torch.sqrt(MU / a**3)
+    return elements_to_state(a, e, i, Om, w, M + n * dt)
+
+
+def exact_fg(r2, v2, dt):
+    """Lagrange coefficients from an exact propagation: r(t) = f·r₂ + g·v₂."""
+    rt, _ = propagate_state(r2, v2, dt)
+    h = torch.linalg.cross(r2, v2)
+    hn2 = h @ h
+    f = (torch.linalg.cross(rt, v2) @ h) / hn2
+    g = (torch.linalg.cross(r2, rt) @ h) / hn2
+    return f, g
+
+
+print("\nGauss's iteration — swap the truncated series for exact Kepler f,g:")
+print("  iter      r₂ (AU)        |Δr₂|")
+prev = r2.clone()
+for it in range(12):
+    f1, g1 = exact_fg(r2, v2, tau1)
+    f3, g3 = exact_fg(r2, v2, tau3)
+    den = f1 * g3 - f3 * g1
+    c1, c3 = g3 / den, -g1 / den
+    # coplanarity: c1·r1 − r2 + c3·r3 = 0, with r_i = R_i + ρ_i·L_i.
+    # Three scalar equations, three unknown distances. Solve them directly.
+    Amat = torch.stack([c1 * L1, -L2, c3 * L3], dim=1)
+    bvec = -c1 * Rv1 + Rv2 - c3 * Rv3
+    # c1 and c3 are already folded into the columns, so the solution vector IS
+    # (ρ₁, ρ₂, ρ₃) — no further scaling.
+    rho1, rho2, rho3 = torch.linalg.solve(Amat, bvec)
+    r1, r2, r3 = Rv1 + rho1 * L1, Rv2 + rho2 * L2, Rv3 + rho3 * L3
+    v2 = (-f3 * r1 + f1 * r3) / den
+    shift = float(torch.linalg.norm(r2 - prev))
+    if it < 6 or shift < 1e-13:
+        print(f"   {it:3d}   {float(torch.linalg.norm(r2)):.9f}   {shift:.2e}")
+    prev = r2.clone()
+    if shift < 1e-14:
+        break
+print(f"  converged; truth r₂ = {float(torch.linalg.norm(r_true[1])):.9f} AU")
 
 print("\nSix elements, from three directions and three times:")
 el_fit = state_to_elements(r2, v2)
@@ -213,11 +259,40 @@ for nm, sc, fv, tv in zip(names, scale, el_fit, el_true):
           f"{(float(fv)-float(tv))*sc:+.3e}")
 
 err_a = abs(float(el_fit[0]) - float(el_true[0])) / float(el_true[0])
-print(f"\n  semi-major axis recovered to {err_a*100:.3f}%.")
-print("  The residual comes from truncating the f and g series at second order in τ.")
-print("  Gauss iterated the whole procedure with improved f,g until it stopped")
-print("  changing; the modern move is to hand this over to least squares over ALL")
-print("  the observations → differential_correction.py\n")
+print(f"\n  semi-major axis recovered to {err_a:.2e} relative — machine precision.")
+print("  Three directions and three timestamps, and the object's distance, speed and")
+print("  orbital plane all follow. Nothing was assumed about the shape of the orbit.\n")
+
+# ----------------------------------------------------------------------------
+# why this was hard in 1801: the conditioning collapses on a short arc
+# ----------------------------------------------------------------------------
+print("SO WHY WAS THIS HARD? Because Piazzi's arc was short.")
+print("  The reduction divides by D₀ = ρ̂₁·(ρ̂₂×ρ̂₃), the volume spanned by the three")
+print("  sight lines. Over a short arc they are nearly coplanar, D₀ → 0, and every")
+print("  quantity in the method is amplified by 1/D₀.\n")
+print("   arc span   sky arc     D₀          amplification 1/D₀")
+for span in (400.0, 240.0, 120.0, 60.0, 41.0, 20.0):
+    lh, Rs = [], []
+    for dt in (0.0, span / 2, span):
+        rc, _ = propagate(CERES, dt)
+        re, _ = propagate(EARTH, dt)
+        lh.append((rc - re) / torch.linalg.norm(rc - re))
+        Rs.append(re)
+    d0 = float(lh[0] @ torch.linalg.cross(lh[1], lh[2]))
+    sky = float(torch.arccos(torch.clamp(lh[0] @ lh[2], -1, 1))) / DEG
+    tag = "  ← Piazzi's actual arc" if abs(span - 41.0) < 1e-9 else ""
+    print(f"   {span:6.0f} d   {sky:6.2f}°   {d0:+.3e}   {abs(1/d0):12.0f}×{tag}")
+print()
+print("  At Piazzi's 41 days the amplification is ~10⁵. Every rounding error in a")
+print("  hand computation, and every arcsecond of observational noise, is multiplied")
+print("  by that. This is why the problem defeated everyone else, and it is why")
+print("  Gauss needed three inventions at once rather than just the reduction above:")
+print("    · the three-observation reduction (this script)")
+print("    · LEAST SQUARES, to use all 24 of Piazzi's nights instead of three, so")
+print("      the noise averages down before it gets amplified")
+print("    · a fast, accurate solution of Kepler's equation to make the iteration")
+print("      practical by hand")
+print("  The next script does the second of those. → differential_correction.py\n")
 
 print("Why this mattered beyond one asteroid:")
 print("  · It is still, essentially unchanged, how a newly-found asteroid or comet")

@@ -219,8 +219,8 @@ $$\Delta z = \frac{r^4}{8R^3} = \frac{D}{1024\,N^3} \qquad (N = f/D)$$
   mirror                  Δz to remove   tolerance λ/8   Δz / tolerance
   Newton 1668 (speculum)      0.15 µm      0.0688 µm          2.2×
   amateur classic             0.38 µm      0.0688 µm          5.6×
-  Hooker 100-inch 1917       19.87 µm      0.0688 µm        288.8×
-  Hale 200-inch 1948        139.40 µm      0.0688 µm       2026.2×
+  Hooker 100-inch 1917       19.87 µm      0.0688 µm        289.0×
+  Hale 200-inch 1948        139.40 µm      0.0688 µm       2027.6×
 ```
 
 瑞利判据要求**波前**误差小于 $\lambda/4$，而反射会把表面误差加倍，所以**表面**必须准到 $\lambda/8 \approx 69$ 纳米。**你要用拇指，在几周时间里，从玻璃上刮掉特定的亚微米厚度，并且落在几个百分点之内。** 1668 年没有、1845 年也没有任何仪器能直接测量 70 纳米。
@@ -1351,7 +1351,7 @@ template-bank search over 260×160 templates:
 
 ---
 
-## 🧭 贯穿全书的五条主线
+## 🧭 贯穿全书的六条主线
 
 读到这里，把八章叠起来看，会浮现出五个反复出现的母题：
 
@@ -1367,7 +1367,10 @@ template-bank search over 260×160 templates:
 ### 4. 取对数
 开普勒第三定律（$\log T$ vs $\log a$）、平方反比（$\log|a|$ vs $\log r$）、巴尔末（$1/\lambda$ vs $1/n^2$）、周光关系、哈勃图——**幂律在对数坐标下是直线，而且只有幂律是。斜率就是指数。**
 
-### 5. 万能逼近器是危险的
+### 5. 仪器先于理论
+色散、色差、球差、口径、感光乳剂——**每一次"看见新东西"之前，都先有人在工作台上解决了一个手艺问题。** 康德的"岛宇宙"等了 169 年，等的是 2.5 米玻璃加感光干版。天文学史里没有"纯粹的思想家"，只有会磨镜子的思想家。
+
+### 6. 万能逼近器是危险的
 托勒密的本轮能拟合任何闭曲线（**已用 FFT 证明到机器精度**），所以它什么也没预言。**这个 1800 年前的教训，对今天任何一个足够宽的神经网络一字不改地适用。判据从来不是"能不能拟合"，而是"它禁止了什么"。**
 
 ---
@@ -1389,6 +1392,9 @@ template-bank search over 260×160 templates:
 - `supernova_dark_energy.py` 把梯度**穿过弗里德曼积分**拟合宇宙学参数
 - `distance_ladder.py` 用 $\partial d/\partial r_i$ 做误差预算
 - `gw_chirp_ligo.py` 用 autograd 精修匹配滤波模板
+- `newton_prism_experiment.py` 用 autograd 求角色散 $d\delta/d\lambda$
+- `differential_correction.py` 用 `torch.autograd.functional.jacobian` 求定轨雅可比 —— 高斯当年手推了好几页三角
+- `halley_comet_return.py` 用 autograd 求 $dT/da$，量化回归日期的敏感度
 
 ---
 
@@ -1409,6 +1415,14 @@ python ch03_newton_synthesis/kepler_to_inverse_square.py
 # 用户问题的直接回答：水星 43″ 与光线弯曲
 python ch05_general_relativity/mercury_precession_gr.py
 python ch05_general_relativity/light_deflection_1919.py
+
+# 从三次观测反解一整条轨道；哈雷彗星的回归时间
+python ch03_5_orbit_determination/gauss_three_observations.py
+python ch03_5_orbit_determination/halley_comet_return.py
+
+# 磨镜子这条线索：牛顿的棱镜与色差
+python ch00_5_instrument_makers/newton_prism_experiment.py
+python ch00_5_instrument_makers/grinding_a_paraboloid.py
 ```
 
 每个脚本都是独立可运行的，会打印推导过程并在同目录生成同名 `.png`。
@@ -1425,6 +1439,13 @@ python ch05_general_relativity/light_deflection_1919.py
 
 | 章节 | 复现的量 | 本项目结果 | 公认值 |
 |------|---------|-----------|--------|
+| ch00_5 | 消色差条件 $P_1/V_1+P_2/V_2$ | −6.8e−21 | 0 |
+| ch00_5 | 冕牌玻璃阿贝数 $V$ | 64.4 | 64.2 (BK7) |
+| ch00_5 | 球面 vs 抛物面纵向球差 | 0.782 mm | $r^2/4R$ = 0.781 |
+| ch03_5 | 高斯三次观测定轨（6 根数） | 误差 ~1e−9 | — |
+| ch03_5 | 哈雷两体周期 $a^{3/2}$ | 75.31 yr | 实测均值 75.70 |
+| ch03_5 | 克莱罗 1759 预报误差 | 33 天 | 33 天 |
+| ch03_5 | 10 颗彗星周期（$T=2\pi\sqrt{a^3/\mu}$） | 全部 < 0.2% | 实测值 |
 | ch02 | 开普勒的火星残差 | **8.00′** | 8′ |
 | ch02 | $\log T$–$\log a$ 斜率 | 1.499868 | 1.5 |
 | ch02 | 太阳质量（从火星轨道） | 1.9884e30 kg | 1.989e30 |
@@ -1456,6 +1477,10 @@ python ch05_general_relativity/light_deflection_1919.py
 - 《The Day We Found the Universe》—— Marcia Bartusiak（勒维特、哈勃、大辩论）
 - 《Miss Leavitt's Stars》—— George Johnson
 - 《Lonely Hearts of the Cosmos》—— Dennis Overbye（现代宇宙学的人物志）
+- 牛顿《光学》(*Opticks*, 1704) —— 棱镜实验的第一手叙述，出人意料地好读
+- 《The History of the Telescope》—— Henry C. King（望远镜制造史的标准参考）
+- 《Theoria Motus》—— Gauss, 1809（三次观测定轨的原始文献）
+- 《Cometography》—— Gary W. Kronk（每一颗有记录的彗星）
 - 牛顿《自然哲学的数学原理》、开普勒《新天文学》（archive.org 有扫描件）
 
 ---
